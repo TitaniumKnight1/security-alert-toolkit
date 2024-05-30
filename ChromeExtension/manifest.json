@@ -1,0 +1,22 @@
+{
+  "manifest_version": 3,
+  "name": "Phishing Email Analysis",
+  "version": "1.0",
+  "description": "Analyze phishing emails with VirusTotal and AbuseIPDB APIs.",
+  "permissions": [
+    "activeTab",
+    "clipboardRead",
+    "clipboardWrite",
+    "storage"
+  ],
+  "host_permissions": [
+    "https://api.abuseipdb.com/*",
+    "https://www.virustotal.com/*"
+  ],
+  "action": {
+    "default_popup": "popup.html"
+  },
+  "background": {
+    "service_worker": "background.js"
+  }
+}

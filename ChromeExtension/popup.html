@@ -1,0 +1,43 @@
+<!DOCTYPE html>
+<html>
+<head>
+  <title>Phishing Email Analysis</title>
+  <style>
+    body {
+      font-family: Arial, sans-serif;
+      padding: 20px;
+    }
+    button {
+      margin-top: 10px;
+      padding: 10px 20px;
+      cursor: pointer;
+    }
+    pre {
+      white-space: pre-wrap;
+      word-wrap: break-word;
+    }
+    #progressContainer {
+      width: 100%;
+      background-color: #f3f3f3;
+      margin-top: 10px;
+    }
+    #progressBar {
+      width: 0%;
+      height: 30px;
+      background-color: #4caf50;
+      display: none;
+    }
+  </style>
+</head>
+<body>
+  <h1>Phishing Email Analysis</h1>
+  <button id="analyzeButton">Analyze from Clipboard</button>
+  <button id="recopyDescriptionButton" style="display:none;">Re-copy Description</button>
+  <div id="progressContainer">
+    <div id="progressBar"></div>
+  </div>
+  <pre id="result"></pre>
+  <button id="generateReportButton" style="display:none;">Generate Full Report</button>
+  <script src="popup.js"></script>
+</body>
+</html>
