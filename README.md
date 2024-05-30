@@ -17,7 +17,7 @@ Installation
 Clone the repository:
 bash
 Copy code
-git clone https://github.com/yourusername/phishing-email-analysis-tool.git
+git clone https://github.com/yourusername/autophishreport.git
 Navigate to the project directory:
 bash
 Copy code
