@@ -43,7 +43,7 @@ async function queryVirusTotal(url, progressCallback, progress, increment) {
   try {
     const urlId = urlToBase64(url);
     const response = await fetch(`https://www.virustotal.com/api/v3/urls/${urlId}`, {
-      headers: { 'x-apikey': '86bae1528f5c1e9af939b858009d30c528fb32c95be9d0e878ae385edab70b3e' }
+      headers: { 'x-apikey': '<VIRUSTOTAL_API_KEY' }
     });
     if (!response.ok) {
       if (response.status === 404) {
@@ -69,7 +69,7 @@ async function checkIpAbuseIPDB(ip, progressCallback, progress, increment) {
     const response = await fetch(`https://api.abuseipdb.com/api/v2/check?ipAddress=${ip}&maxAgeInDays=90&verbose=`, {
       headers: {
         'Accept': 'application/json',
-        'Key': '428109f78f9ca804515358052cde0fa05bd4bc2d06098d268d2688662acd140824f143ba01dc36e6'
+        'Key': 'ABUSEIPDB_API_KEY'
       }
     });
     if (!response.ok) {
