@@ -13,7 +13,12 @@ document.getElementById('analyzeButton').addEventListener('click', () => {
 
   navigator.clipboard.readText().then(text => {
     if (text) {
-      chrome.runtime.sendMessage({ action: 'analyze', data: text });
+      chrome.runtime.sendMessage({ action: 'analyze', data: text }, (response) => {
+        if (response && response.error) {
+          resultElement.textContent = `Analysis failed: ${response.error}`;
+          progressBar.style.width = '0%';
+        }
+      });
 
       chrome.runtime.onMessage.addListener((message) => {
         if (message.action === 'progress') {
@@ -70,7 +75,6 @@ document.addEventListener('DOMContentLoaded', () => {
   chrome.storage.local.get(['progress', 'analyzing'], (items) => {
     if (items.analyzing) {
       const progressBar = document.getElementById('progressBar');
-      const progressContainer = document.getElementById('progressContainer');
       const analyzeButton = document.getElementById('analyzeButton');
       progressBar.style.width = `${items.progress}%`;
       progressBar.style.maxWidth = analyzeButton.offsetWidth + 'px';

@@ -13,11 +13,14 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
         chrome.storage.local.set({ description: description, result: result, analyzing: false }, () => {
           chrome.runtime.sendMessage({ action: 'complete', description: description });
         });
+        sendResponse({ success: true });
       }).catch(error => {
         chrome.runtime.sendMessage({ action: 'error', error: error.message });
+        sendResponse({ error: error.message });
       });
     } catch (error) {
       chrome.runtime.sendMessage({ action: 'error', error: `Invalid JSON input: ${error.message}` });
+      sendResponse({ error: `Invalid JSON input: ${error.message}` });
     }
     return true; // Indicates that the response is sent asynchronously
   } else if (message.action === 'generateReport') {
@@ -26,24 +29,28 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
         chrome.runtime.sendMessage({ action: 'detailedReport', result: items.result });
       }
     });
+    sendResponse({ success: true });
   } else if (message.action === 'recopyDescription') {
     chrome.storage.local.get(['description'], (items) => {
       if (items.description) {
         chrome.runtime.sendMessage({ action: 'recopyDescription', description: items.description });
       }
     });
+    sendResponse({ success: true });
   }
+  return true; // Indicates that the response is sent asynchronously
 });
 
 function urlToBase64(url) {
   return btoa(url).replace(/=+$/, '');
 }
 
-async function queryVirusTotal(url, progressCallback, progress, increment) {
+async function queryVirusTotal(urlOrHash, isFile, progressCallback, progress, increment) {
   try {
-    const urlId = urlToBase64(url);
-    const response = await fetch(`https://www.virustotal.com/api/v3/urls/${urlId}`, {
-      headers: { 'x-apikey': '<VIRUSTOTAL_API_KEY' }
+    const encodedId = isFile ? urlOrHash : urlToBase64(urlOrHash);
+    const endpoint = isFile ? `https://www.virustotal.com/api/v3/files/${encodedId}` : `https://www.virustotal.com/api/v3/urls/${encodedId}`;
+    const response = await fetch(endpoint, {
+      headers: { 'x-apikey': '86bae1528f5c1e9af939b858009d30c528fb32c95be9d0e878ae385edab70b3e' }
     });
     if (!response.ok) {
       if (response.status === 404) {
@@ -69,7 +76,7 @@ async function checkIpAbuseIPDB(ip, progressCallback, progress, increment) {
     const response = await fetch(`https://api.abuseipdb.com/api/v2/check?ipAddress=${ip}&maxAgeInDays=90&verbose=`, {
       headers: {
         'Accept': 'application/json',
-        'Key': 'ABUSEIPDB_API_KEY'
+        'Key': '428109f78f9ca804515358052cde0fa05bd4bc2d06098d268d2688662acd140824f143ba01dc36e6'
       }
     });
     if (!response.ok) {
@@ -116,7 +123,7 @@ async function processPhishingReport(fields, progressCallback) {
   const virustotalUrlResults = {};
   for (const url of urls) {
     try {
-      const result = await queryVirusTotal(url, progressCallback, progress, increment);
+      const result = await queryVirusTotal(url, false, progressCallback, progress, increment);
       virustotalUrlResults[url] = result.notFound ? { notFound: true } : result;
     } catch (error) {
       virustotalUrlResults[url] = { error: error.message };
@@ -131,7 +138,7 @@ async function processPhishingReport(fields, progressCallback) {
   for (const attachment of attachments) {
     for (const fileHash of attachment['file.hash.sha256'] || []) {
       try {
-        const result = await queryVirusTotal(fileHash, progressCallback, progress, increment);
+        const result = await queryVirusTotal(fileHash, true, progressCallback, progress, increment);
         virustotalFileResults[fileHash] = result.notFound ? { notFound: true } : result;
       } catch (error) {
         virustotalFileResults[fileHash] = { error: error.message };
@@ -152,7 +159,8 @@ async function processPhishingReport(fields, progressCallback) {
     sender_ip: senderIp,
     abuseipdb_result: abuseIpDbResult,
     urls: virustotalUrlResults,
-    files: virustotalFileResults
+    files: virustotalFileResults,
+    attachments
   };
 }
 
@@ -213,13 +221,18 @@ function formatReport(results) {
     output.push('N/A');
   } else {
     for (const [fileHash, result] of Object.entries(results.files)) {
-      if (result.notFound) {
-        output.push(`Hash: ${fileHash} - N/A`);
-      } else {
-        const fileName = result.file && result.file.name ? result.file.name : 'unknown';
-        const virustotalLink = `https://www.virustotal.com/gui/file/${fileHash}/detection`;
+      const attachment = results.attachments.find(att => att['file.hash.sha256'] && att['file.hash.sha256'][0] === fileHash);
+      if (attachment) {
+        const fileName = attachment['file.name'] ? attachment['file.name'][0] : 'unknown';
+        const fileMd5 = attachment['file.hash.md5'] ? attachment['file.hash.md5'][0] : 'unknown';
         output.push(`Name: ${fileName}`);
-        output.push(`Hash: ${fileHash}`);
+        output.push(`MD5 Hash: ${fileMd5}`);
+        output.push(`SHA256 Hash: ${fileHash}`);
+      }
+      if (result.notFound) {
+        output.push('No VirusTotal result');
+      } else {
+        const virustotalLink = `https://www.virustotal.com/gui/file/${fileHash}/detection`;
         output.push(`[VirusTotal](${virustotalLink})`);
       }
     }
@@ -227,4 +240,3 @@ function formatReport(results) {
 
   return output.join('\n');
 }
-/// Test Comment
