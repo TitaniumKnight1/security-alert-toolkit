@@ -1,0 +1,32 @@
+name: Analyze Phishing Report
+
+on:
+  push:
+    branches:
+      - main
+  workflow_dispatch:
+
+jobs:
+  analyze-report:
+    runs-on: ubuntu-latest
+
+    steps:
+    - name: Checkout repository
+      uses: actions/checkout@v2
+
+    - name: Set up Python
+      uses: actions/setup-python@v2
+      with:
+        python-version: '3.x'
+
+    - name: Install dependencies
+      run: |
+        python -m pip install --upgrade pip
+        pip install requests pyperclip
+
+    - name: Run phishing report analysis
+      env:
+        VIRUSTOTAL_API_KEY: ${{ secrets.VIRUSTOTAL_API_KEY }}
+        ABUSEIPDB_API_KEY: ${{ secrets.ABUSEIPDB_API_KEY }}
+      run: |
+        python autophishreport.py
