@@ -8,7 +8,7 @@ import pyperclip
 import re
 from urllib.parse import unquote
 
-# API keys
+# Get the API keys from environment variables
 VIRUSTOTAL_API_KEY = os.getenv('VIRUSTOTAL_API_KEY')
 ABUSEIPDB_API_KEY = os.getenv('ABUSEIPDB_API_KEY')
 
