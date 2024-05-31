@@ -29,4 +29,4 @@ jobs:
         VIRUSTOTAL_API_KEY: ${{ secrets.VIRUSTOTAL_API_KEY }}
         ABUSEIPDB_API_KEY: ${{ secrets.ABUSEIPDB_API_KEY }}
       run: |
-        python autophishreport.py
+        python autophishreport/autophishreport.py
