@@ -1,3 +1,4 @@
+import os
 import requests
 import json
 import base64
@@ -5,10 +6,11 @@ import time
 from urllib.parse import urlparse
 import pyperclip
 import re
+from urllib.parse import unquote
 
 # API keys
-VIRUSTOTAL_API_KEY = 'your_virustotal_api_key'
-ABUSEIPDB_API_KEY = 'your_abuseipdb_api_key'
+VIRUSTOTAL_API_KEY = os.getenv('VIRUSTOTAL_API_KEY')
+ABUSEIPDB_API_KEY = os.getenv('ABUSEIPDB_API_KEY')
 
 # Function to convert URL to URL-safe base64 format
 def url_to_base64(url):
