@@ -128,8 +128,13 @@ def process_phishing_report(report):
     for attachment in attachments:
         for file_hash in attachment.get('file.hash.sha256', []):
             file_name = attachment.get('file.name', ['unknown'])[0]
-            virustotal_link = f"https://www.virustotal.com/gui/file/{file_hash}/detection"
+            file_result = virustotal_file_results.get(file_hash, {})
+            if 'data' in file_result and 'id' in file_result['data']:
+                virustotal_link = f"https://www.virustotal.com/gui/file/{file_result['data']['id']}/detection"
+            else:
+                virustotal_link = "No VT Results"
             virustotal_file_links.append({"name": file_name, "hash": file_hash, "virustotal_link": virustotal_link})
+
 
     abuseipdb_summary = {
         "ipAddress": abuseipdb_result['data']['ipAddress'],
@@ -209,6 +214,7 @@ if results:
     output.append(f"  - Last Reported At: {results['abuseipdb_result']['lastReportedAt']}")
 
     if results['body'] and results['body'] != 'N/A':
+        output.append("")
         output.append("Body:")
         output.append("```")
         output.append(f"{results['body']}")
@@ -217,17 +223,21 @@ if results:
         output.append("Body: N/A")
 
     if results['urls']:
-        output.append("Urls:")
+        output.append("***Urls:***")
         for url in results['urls']:
             output.append(url)
 
 
     if results['files']:
-        output.append("Files:")
+        output.append("")
+        output.append("***Files***:")
         for file in results['files']:
             output.append(f"Name: {file['name']}")
             output.append(f"Hash: {file['hash']}")
-            output.append(f"[VirusTotal]({file['virustotal_link']})")
+            if file['virustotal_link'] != "No VT Results":
+                output.append(f"[VirusTotal]({file['virustotal_link']})")
+            else:
+                output.append(file['virustotal_link'])
 
     # Join the output list into a single string
     formatted_output = "\n".join(output)
