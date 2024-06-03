@@ -121,7 +121,7 @@ def process_phishing_report(report):
         else:
             analysis_url = "No VT Results"
         truncated_url = truncate_url(url)
-        virustotal_url_links.append(f"{truncated_url}\n  - {analysis_url}")
+        virustotal_url_links.append(f"{truncated_url}\n{analysis_url}")
 
 
     virustotal_file_links = []
