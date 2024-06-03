@@ -17,6 +17,25 @@ def url_to_base64(url):
     base64_string = base64_bytes.decode('utf-8')
     return base64_string.rstrip('=')
 
+# Function to format email body for better readability
+# Function to format email body for better readability
+def format_email_body(body):
+    # Replace multiple spaces with a single space
+    body = re.sub(r'\s+', ' ', body)
+
+    # Add line breaks before common separators and email indicators
+    body = re.sub(r'(\s*-{2,}\s*Forwarded message\s*-{2,})', r'\n\n\1\n', body)
+    body = re.sub(r'(\s*-{2,}\s*Original message\s*-{2,})', r'\n\n\1\n', body)
+    body = re.sub(r'(\s*From:\s)', r'\n\n\1', body)
+    body = re.sub(r'(\s*Date:\s)', r'\n\1', body)
+    body = re.sub(r'(\s*Subject:\s)', r'\n\1', body)
+    body = re.sub(r'(\s*To:\s)', r'\n\1', body)
+
+    # Further formatting to improve readability
+    body = body.replace('   ', '\n\n')
+
+    return body
+
 # Function to decode SafeLinks
 def decode_safelink(url):
     parsed_url = urlparse(url)
@@ -85,6 +104,7 @@ def process_phishing_report(report):
     reply_to = extract_email(report.get('fields').get('email.headers.Reply-To', ['N/A'])[0]) if 'email.headers.Reply-To' in report.get('fields') else 'N/A'
     subject = report.get('fields').get('email.subject.text', ['N/A'])[0]
     body = report.get('fields').get('email.body_plaintext', ['N/A'])[0].replace('\n', ' ').replace('\r', '').strip()
+    body = format_email_body(body)  # Apply the formatting function
     urls = report.get('fields').get('email.urls.data', [])
     attachments = report.get('fields').get('email.attachments', [])
     auth_results = report.get('fields').get('email.headers.Authentication-Results', ['N/A'])[0]
@@ -123,7 +143,6 @@ def process_phishing_report(report):
         truncated_url = truncate_url(url)
         virustotal_url_links.append(f"{truncated_url}\n{analysis_url}")
 
-
     virustotal_file_links = []
     for attachment in attachments:
         for file_hash in attachment.get('file.hash.sha256', []):
@@ -134,7 +153,6 @@ def process_phishing_report(report):
             else:
                 virustotal_link = "No VT Results"
             virustotal_file_links.append({"name": file_name, "hash": file_hash, "virustotal_link": virustotal_link})
-
 
     abuseipdb_summary = {
         "ipAddress": abuseipdb_result['data']['ipAddress'],
@@ -238,6 +256,7 @@ if results:
                 output.append(f"[VirusTotal]({file['virustotal_link']})")
             else:
                 output.append(file['virustotal_link'])
+
 
     # Join the output list into a single string
     formatted_output = "\n".join(output)
