@@ -2,13 +2,13 @@ import requests
 import json
 import base64
 import time
-from urllib.parse import urlparse
+from urllib.parse import urlparse, parse_qs
 import pyperclip
 import re
 
 # API keys
-VIRUSTOTAL_API_KEY = 'your_virustotal_api_key'
-ABUSEIPDB_API_KEY = 'your_abuseipdb_api_key'
+VIRUSTOTAL_API_KEY = 'VIRUSTOTAL_API_KEY'
+ABUSEIPDB_API_KEY = 'ABUSEIPDB_API_KEY'
 
 # Function to convert URL to URL-safe base64 format
 def url_to_base64(url):
@@ -16,6 +16,21 @@ def url_to_base64(url):
     base64_bytes = base64.urlsafe_b64encode(url_bytes)
     base64_string = base64_bytes.decode('utf-8')
     return base64_string.rstrip('=')
+
+# Function to decode SafeLinks
+def decode_safelink(url):
+    parsed_url = urlparse(url)
+    if 'safelinks.protection.outlook.com' in parsed_url.netloc:
+        query_params = parse_qs(parsed_url.query)
+        if 'url' in query_params:
+            return query_params['url'][0]
+    return url
+
+# Function to truncate URLs
+def truncate_url(url, max_length=100):
+    if len(url) > max_length:
+        return f"`{url[:max_length]}...`"
+    return f"`{url}`"
 
 # Function to query VirusTotal for a URL
 def query_virustotal(url):
@@ -78,12 +93,16 @@ def process_phishing_report(report):
     sender_ip = extract_ip_from_auth_results(auth_results)
     abuseipdb_result = check_ip_abuseipdb(sender_ip)
     
-    # Remove duplicate URLs
-    urls = list(set(urls))
+    if 'data' not in abuseipdb_result:
+        print(f"Error: AbuseIPDB response does not contain 'data'. Response: {abuseipdb_result}")
+        return {}
+    
+    # Decode SafeLinks and remove duplicates
+    decoded_urls = list(set([decode_safelink(url) for url in urls]))
 
     # Query VirusTotal for URLs
     virustotal_url_results = {}
-    for url in urls:
+    for url in decoded_urls:
         virustotal_url_results[url] = query_virustotal(url)
         time.sleep(15)  # Sleep to respect the rate limit
 
@@ -98,10 +117,12 @@ def process_phishing_report(report):
     for url, result in virustotal_url_results.items():
         domain = urlparse(url).netloc
         if 'data' in result and 'id' in result['data']:
-            analysis_url = f"`{domain}`: [VirusTotal](https://www.virustotal.com/gui/url/{result['data']['id']}/detection)"
+            analysis_url = f"[VirusTotal](https://www.virustotal.com/gui/url/{result['data']['id']}/detection)"
         else:
-            analysis_url = f"`{domain}`: No VT Results"
-        virustotal_url_links.append(analysis_url)
+            analysis_url = "No VT Results"
+        truncated_url = truncate_url(url)
+        virustotal_url_links.append(f"{truncated_url}\n  - {analysis_url}")
+
 
     virustotal_file_links = []
     for attachment in attachments:
@@ -130,7 +151,8 @@ def process_phishing_report(report):
         "sender_ip": sender_ip,
         "abuseipdb_result": abuseipdb_summary,
         "urls": virustotal_url_links,
-        "files": virustotal_file_links
+        "files": virustotal_file_links,
+        "decoded_urls": decoded_urls  # Include decoded URLs for detailed report
     }
 
 # Function to get JSON input from clipboard or user input
@@ -150,67 +172,71 @@ report = get_json_input()
 # Process the report
 results = process_phishing_report(report)
 
-# Prepare the description output
-if results['subject'] and results['subject'] != 'N/A':
-    description_output = f"`{results['to']}` reported an email originating from `{results['from']}` with the subject `{results['subject']}`."
+if results:
+    # Prepare the description output
+    if results['subject'] and results['subject'] != 'N/A':
+        description_output = f"`{results['to']}` reported an email originating from `{results['from']}` with the subject `{results['subject']}`."
+    else:
+        description_output = f"`{results['to']}` reported an email originating from `{results['from']}` with no subject."
+
+    # Copy the description output to the clipboard
+    try:
+        pyperclip.copy(description_output)
+        print("The description has been successfully copied to the clipboard. Please paste it now.")
+    except Exception as e:
+        print(f"Failed to copy to clipboard: {e}")
+
+    # Wait for the user to press Enter after pasting the description
+    input("Press Enter after pasting the description...")
+
+    # Prepare the formatted output
+    output = []
+    output.append(f"To: `{results['to']}`")
+    output.append(f"From: `{results['from']}`")
+    if results['reply_to'] and results['reply_to'] != 'N/A':
+        output.append(f"Reply: `{results['reply_to']}`")
+    output.append(f"Subject: `{results['subject']}`")
+
+    output.append(f"Sender IP: `{results['sender_ip']}`")
+    output.append("AbuseIPDB Result:")
+    output.append(f"  - IP Address: {results['abuseipdb_result']['ipAddress']}")
+    output.append(f"  - Abuse Confidence Score: {results['abuseipdb_result']['abuseConfidenceScore']}")
+    output.append(f"  - Country: {results['abuseipdb_result']['country']}")
+    output.append(f"  - Usage Type: {results['abuseipdb_result']['usageType']}")
+    output.append(f"  - ISP: {results['abuseipdb_result']['isp']}")
+    output.append(f"  - Domain: {results['abuseipdb_result']['domain']}")
+    output.append(f"  - Total Reports: {results['abuseipdb_result']['totalReports']}")
+    output.append(f"  - Last Reported At: {results['abuseipdb_result']['lastReportedAt']}")
+
+    if results['body'] and results['body'] != 'N/A':
+        output.append("Body:")
+        output.append("```")
+        output.append(f"{results['body']}")
+        output.append("```")
+    else:
+        output.append("Body: N/A")
+
+    if results['urls']:
+        output.append("Urls:")
+        for url in results['urls']:
+            output.append(url)
+
+
+    if results['files']:
+        output.append("Files:")
+        for file in results['files']:
+            output.append(f"Name: {file['name']}")
+            output.append(f"Hash: {file['hash']}")
+            output.append(f"[VirusTotal]({file['virustotal_link']})")
+
+    # Join the output list into a single string
+    formatted_output = "\n".join(output)
+
+    # Copy the formatted output to the clipboard
+    try:
+        pyperclip.copy(formatted_output)
+        print("The detailed report has been successfully copied to the clipboard.")
+    except Exception as e:
+        print(f"Failed to copy to clipboard: {e}")
 else:
-    description_output = f"`{results['to']}` reported an email originating from `{results['from']}` with no subject."
-
-# Copy the description output to the clipboard
-try:
-    pyperclip.copy(description_output)
-    print("The description has been successfully copied to the clipboard. Please paste it now.")
-except Exception as e:
-    print(f"Failed to copy to clipboard: {e}")
-
-# Wait for the user to press Enter after pasting the description
-input("Press Enter after pasting the description...")
-
-# Prepare the formatted output
-output = []
-output.append(f"To: `{results['to']}`")
-output.append(f"From: `{results['from']}`")
-if results['reply_to'] and results['reply_to'] != 'N/A':
-    output.append(f"Reply: `{results['reply_to']}`")
-output.append(f"Subject: `{results['subject']}`")
-
-output.append(f"Sender IP: `{results['sender_ip']}`")
-output.append("AbuseIPDB Result:")
-output.append(f"  - IP Address: {results['abuseipdb_result']['ipAddress']}")
-output.append(f"  - Abuse Confidence Score: {results['abuseipdb_result']['abuseConfidenceScore']}")
-output.append(f"  - Country: {results['abuseipdb_result']['country']}")
-output.append(f"  - Usage Type: {results['abuseipdb_result']['usageType']}")
-output.append(f"  - ISP: {results['abuseipdb_result']['isp']}")
-output.append(f"  - Domain: {results['abuseipdb_result']['domain']}")
-output.append(f"  - Total Reports: {results['abuseipdb_result']['totalReports']}")
-output.append(f"  - Last Reported At: {results['abuseipdb_result']['lastReportedAt']}")
-
-if results['body'] and results['body'] != 'N/A':
-    output.append("Body:")
-    output.append("```")
-    output.append(f"{results['body']}")
-    output.append("```")
-else:
-    output.append("Body: N/A")
-
-if results['urls']:
-    output.append("Urls:")
-    for url in results['urls']:
-        output.append(url)
-
-if results['files']:
-    output.append("Files:")
-    for file in results['files']:
-        output.append(f"Name: {file['name']}")
-        output.append(f"Hash: {file['hash']}")
-        output.append(f"[VirusTotal]({file['virustotal_link']})")
-
-# Join the output list into a single string
-formatted_output = "\n".join(output)
-
-# Copy the formatted output to the clipboard
-try:
-    pyperclip.copy(formatted_output)
-    print("The detailed report has been successfully copied to the clipboard.")
-except Exception as e:
-    print(f"Failed to copy to clipboard: {e}")
+    print("Failed to process the report due to an error in the AbuseIPDB response.")
