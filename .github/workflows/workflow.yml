@@ -1,13 +1,9 @@
-name: Analyze Phishing Report
+name: Run autophishreport script
 
-on:
-  push:
-    branches:
-      - main
-  workflow_dispatch:
+on: [push]
 
 jobs:
-  analyze-report:
+  run-script:
     runs-on: ubuntu-latest
 
     steps:
@@ -22,11 +18,7 @@ jobs:
     - name: Install dependencies
       run: |
         python -m pip install --upgrade pip
-        pip install requests pyperclip
+        pip install requests pyperclip  # Add any other dependencies here
 
-    - name: Run phishing report analysis
-      env:
-        VIRUSTOTAL_API_KEY: ${{ secrets.VIRUSTOTAL_API_KEY }}
-        ABUSEIPDB_API_KEY: ${{ secrets.ABUSEIPDB_API_KEY }}
-      run: |
-        python autophishreport/autophishreport.py
+    - name: Run autophishreport script
+      run: python autophishreport.py
