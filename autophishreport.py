@@ -1,27 +1,59 @@
 import requests
 import json
-import base64
-import time
-from urllib.parse import urlparse, parse_qs
-import pyperclip
 import re
+import pyperclip
+from urllib.parse import unquote
+import base64
 
 # API keys
 VIRUSTOTAL_API_KEY = 'VIRUSTOTAL_API_KEY'
 ABUSEIPDB_API_KEY = 'ABUSEIPDB_API_KEY'
 ALIENVAULT_API_KEY = 'ALIENVAULT_API_KEY'
-GOOGLE_API_KEY = 'GOOGLE_API_KEY'
 
-# Function to extract URLs from the email report
-def extract_urls_from_report(report):
-    return report.get('fields', {}).get('email.urls.data', [])
+# Function to extract and decode URLs from the email report
+def extract_and_decode_urls(json_data):
+    urls = []
 
-# Function to convert URL to URL-safe base64 format
-def url_to_base64(url):
-    url_bytes = url.encode('utf-8')
-    base64_bytes = base64.urlsafe_b64encode(url_bytes)
-    base64_string = base64_bytes.decode('utf-8')
-    return base64_string.rstrip('=')
+    # Extract URLs from email.urls.data
+    if "email.urls.data" in json_data["fields"]:
+        urls.extend(json_data["fields"]["email.urls.data"])
+
+    # Extract URLs from email.body_plaintext
+    if "email.body_plaintext" in json_data["fields"]:
+        for body in json_data["fields"]["email.body_plaintext"]:
+            found_urls = re.findall(r'(https?://\S+)', body)
+            urls.extend(found_urls)
+
+    # Remove duplicates
+    urls = list(set(urls))
+
+    # Decode and clean URLs
+    decoded_urls = []
+    for url in urls:
+        deobfuscation_steps = []
+
+        # Unquote URL
+        unquoted_url = unquote(url)
+        if unquoted_url != url:
+            deobfuscation_steps.append(f"Decoded: `{unquoted_url}`")
+
+        # Handle obfuscated JavaScript URLs
+        js_obfuscated = re.search(r'var url\s*=\s*\[(.*?)\]\.join', unquoted_url)
+        if (js_obfuscated):
+            parts = js_obfuscated.group(1).replace("'", "").split(",")
+            reconstructed_url = "".join(parts)
+            deobfuscation_steps.append(f"Reconstructed from JS: `{reconstructed_url}`")
+            final_url = reconstructed_url
+        else:
+            final_url = unquoted_url
+
+        decoded_urls.append({
+            "original_url": url,
+            "final_url": final_url,
+            "steps": deobfuscation_steps
+        })
+
+    return decoded_urls
 
 # Function to format email body for better readability
 def format_email_body(body):
@@ -35,58 +67,8 @@ def format_email_body(body):
     body = body.replace('   ', '\n\n')
     return body
 
-# Function to decode SafeLinks
-def decode_safelink(url):
-    parsed_url = urlparse(url)
-    if 'safelinks.protection.outlook.com' in parsed_url.netloc:
-        query_params = parse_qs(parsed_url.query)
-        if 'url' in query_params:
-            return query_params['url'][0]
-    return url
-
-# Function to truncate URLs
-def truncate_url(url, max_length=100):
-    if len(url) > max_length:
-        return f"`{url[:max_length]}...`"
-    return f"`{url}`"
-
-# Function to query VirusTotal for a URL
-def query_virustotal(url):
-    url_id = url_to_base64(url)
-    headers = {'x-apikey': VIRUSTOTAL_API_KEY}
-    response = requests.get(f'https://www.virustotal.com/api/v3/urls/{url_id}', headers=headers)
-    return response.json()
-
-# Function to check file hash on VirusTotal
-def check_file_hash(hash_value):
-    headers = {'x-apikey': VIRUSTOTAL_API_KEY}
-    response = requests.get(f'https://www.virustotal.com/api/v3/files/{hash_value}', headers=headers)
-    return response.json()
-
-# Function to validate IP address
-def is_valid_ip(ip):
-    ipv4_pattern = re.compile(r"^\d{1,3}\.\d{1,3}\.\d{1,3}\.\d{1,3}$")
-    ipv6_pattern = re.compile(r"^([0-9a-fA-F]{1,4}:){7,7}[0-9a-fA-F]{1,4}|"
-                              r"([0-9a-fA-F]{1,4}:){1,7}:|"
-                              r"([0-9a-fA-F]{1,4}:){1,6}:[0-9a-fA-F]{1,4}|"
-                              r"([0-9a-fA-F]{1,4}:){1,5}(:[0-9a-fA-F]{1,4}){1,2}|"
-                              r"([0-9a-fA-F]{1,4}:){1,4}(:[0-9a-fA-F]{1,4}){1,3}|"
-                              r"([0-9a-fA-F]{1,4}:){1,3}(:[0-9a-fA-F]{1,4}){1,4}|"
-                              r"([0-9a-fA-F]{1,4}:){1,2}(:[0-9a-fA-F]{1,4}){1,5}|"
-                              r"[0-9a-fA-F]{1,4}:((:[0-9a-fA-F]{1,4}){1,6})|"
-                              r":((:[0-9a-fA-F]{1,4}){1,7}|:)|"
-                              r"fe80:(:[0-9a-fA-F]{0,4}){0,4}%[0-9a-zA-Z]{1,}|"
-                              r"::(ffff(:0{1,4}){0,1}:){0,1}"
-                              r"(([0-9]{1,3}\.){3,3}[0-9]{1,3})|"
-                              r"([0-9a-fA-F]{1,4}:){1,4}:([0-9]{1,3}\.){3,3}[0-9]{1,3}$")
-    return ipv4_pattern.match(ip) or ipv6_pattern.match(ip)
-
 # Function to check IP on AbuseIPDB
 def check_ip_abuseipdb(ip):
-    if not is_valid_ip(ip):
-        print(f"Error: Invalid IP address format '{ip}'")
-        return None
-    
     url = 'https://api.abuseipdb.com/api/v2/check'
     querystring = {
         'ipAddress': ip,
@@ -98,21 +80,18 @@ def check_ip_abuseipdb(ip):
         'Key': ABUSEIPDB_API_KEY
     }
     response = requests.get(url, headers=headers, params=querystring)
-    
+
     if response.status_code != 200:
-        print(f"Error: Received status code {response.status_code} from AbuseIPDB. Response: {response.text}")
-        return None
+        return {"message": f"Error: Received status code {response.status_code}"}
 
     try:
         result = response.json()
         if 'data' in result:
             return result
         else:
-            print(f"Error: AbuseIPDB response does not contain 'data'. Response: {result}")
-            return None
+            return {"message": "No data found"}
     except json.JSONDecodeError:
-        print(f"Error: Failed to parse JSON response from AbuseIPDB. Response: {response.text}")
-        return None
+        return {"message": "Failed to parse JSON"}
 
 # Function to extract a valid email from a given string
 def extract_email(email_str):
@@ -143,32 +122,37 @@ def extract_ip_from_received_spf(received_spf):
         return match_ipv6.group(1)
     return None
 
-# Function to query Google Safe Browsing for a URL
-def query_google_safe_browsing(url):
-    api_url = 'https://safebrowsing.googleapis.com/v4/threatMatches:find'
-    params = {
-        'key': GOOGLE_API_KEY
-    }
-    body = {
-        "client": {
-            "clientId": "yourcompanyname",
-            "clientVersion": "1.5.2"
-        },
-        "threatInfo": {
-            "threatTypes": ["MALWARE", "SOCIAL_ENGINEERING", "UNWANTED_SOFTWARE", "POTENTIALLY_HARMFUL_APPLICATION"],
-            "platformTypes": ["WINDOWS", "LINUX", "ALL_PLATFORMS"],
-            "threatEntryTypes": ["URL"],
-            "threatEntries": [
-                {"url": url}
-            ]
-        }
-    }
-    response = requests.post(api_url, params=params, json=body)
+# Function to check file hash on VirusTotal
+def check_file_hash(hash_value):
+    headers = {'x-apikey': VIRUSTOTAL_API_KEY}
+    response = requests.get(f'https://www.virustotal.com/api/v3/files/{hash_value}', headers=headers)
     if response.status_code == 200:
         return response.json()
     else:
-        return None
-    
+        return {"message": "No results found"}
+
+# Function to manually generate URL ID
+def generate_url_id(url):
+    return base64.urlsafe_b64encode(url.encode()).decode().strip("=")
+
+# Function to check URL on VirusTotal
+def check_url_virustotal(url):
+    url_id = generate_url_id(url)
+    headers = {'x-apikey': VIRUSTOTAL_API_KEY}
+    response = requests.get(f'https://www.virustotal.com/api/v3/urls/{url_id}', headers=headers)
+    if response.status_code == 200:
+        url_obj = response.json()
+        if 'data' in url_obj:
+            score = url_obj['data']['attributes']['last_analysis_stats']
+            # Remove 'timeout' from score
+            score.pop('timeout', None)
+            formatted_score = ', '.join([f"{k}: {v}" for k, v in score.items()])
+            return f"[VirusTotal](https://www.virustotal.com/gui/url/{url_id}) - {formatted_score}"
+        else:
+            return "No results found"
+    else:
+        return {"message": f"Error: Received status code {response.status_code}"}
+
 # Function to query AlienVault OTX for IP intelligence
 def query_alienvault(ip):
     headers = {'X-OTX-API-KEY': ALIENVAULT_API_KEY}
@@ -176,14 +160,9 @@ def query_alienvault(ip):
     if response.status_code == 200:
         return response.json()
     else:
-        return None
+        return {"message": f"Error: Received status code {response.status_code}"}
 
-# Function to expand shortened URLs using Unshorten.me
-def expand_url(url):
-    response = requests.get(f'https://unshorten.me/json/{url}')
-    return response.json()
-
-# Update the process_phishing_report function to use the new extract_urls_from_report function
+# Update the process_phishing_report function to use the new extract_and_decode_urls function
 def process_phishing_report(report):
     to = extract_email(report.get('fields', {}).get('email.reporter', ['N/A'])[0])
     from_address = extract_email(report.get('fields', {}).get('email.from.address', ['N/A'])[0])
@@ -191,52 +170,25 @@ def process_phishing_report(report):
     subject = report.get('fields', {}).get('email.subject.text', ['N/A'])[0]
     body = report.get('fields', {}).get('email.body_plaintext', ['N/A'])[0].replace('\n', ' ').replace('\r', '').strip()
     body = format_email_body(body)  # Apply the formatting function
-    urls = extract_urls_from_report(report)
+    urls = extract_and_decode_urls(report)
     attachments = report.get('fields', {}).get('email.attachments', [])
     auth_results = report.get('fields', {}).get('email.headers.Authentication-Results', ['N/A'])[0]
     received_spf = report.get('fields', {}).get('email.headers.Received-SPF', ['N/A'])[0]
-    
+
     # Extract and check sender IP
     sender_ip = extract_ip_from_auth_results(auth_results)
     if not sender_ip:
         sender_ip = extract_ip_from_received_spf(received_spf)
-    
+
     abuseipdb_result = None
     if sender_ip:
         abuseipdb_result = check_ip_abuseipdb(sender_ip)
-    else:
-        print("No valid sender IP found in Authentication-Results or Received-SPF.")
-    
-    # Decode SafeLinks and remove duplicates
-    decoded_urls = list(set([decode_safelink(url) for url in urls]))
 
-    # Expand shortened URLs
-    expanded_urls = []
-    for url in decoded_urls:
-        expanded_url = expand_url(url)
-        if 'resolved_url' in expanded_url:
-            expanded_urls.append(expanded_url['resolved_url'])
-        else:
-            print(f"Error: Failed to expand URL {url}. Response: {expanded_url}")
-            expanded_urls.append(url)  # Fallback to the original URL if expansion fails
-
-    # Remove empty or malformed URLs
-    expanded_urls = [url for url in expanded_urls if url]
-
-    # Query Google Safe Browsing for URLs
-    google_safe_browsing_results = {}
-    for url in expanded_urls:
-        result = query_google_safe_browsing(url)
-        if result:
-            google_safe_browsing_results[url] = result
-        else:
-            google_safe_browsing_results[url] = {"message": "No Threat Found"}
-        time.sleep(1)  # To respect rate limits
-    
     # Proceed even if abuseipdb_result is None
     if abuseipdb_result is None:
-        print("Skipping AbuseIPDB check due to invalid sender IP.")
         abuseipdb_summary = {}
+    elif 'message' in abuseipdb_result:
+        abuseipdb_summary = {"error": abuseipdb_result['message']}
     else:
         abuseipdb_summary = {
             "ipAddress": abuseipdb_result['data']['ipAddress'],
@@ -249,45 +201,36 @@ def process_phishing_report(report):
             "lastReportedAt": abuseipdb_result['data']['lastReportedAt']
         }
 
-    # Query VirusTotal for URLs
-    virustotal_url_results = {}
-    for url in expanded_urls:
-        virustotal_url_results[url] = query_virustotal(url)
-        time.sleep(15)  # Sleep to respect the rate limit
-
     # Check file hashes on VirusTotal
     virustotal_file_results = {}
     for attachment in attachments:
         for file_hash in attachment.get('file.hash.sha256', []):
-            virustotal_file_results[file_hash] = check_file_hash(file_hash)
+            virustotal_result = check_file_hash(file_hash)
+            virustotal_file_results[file_hash] = virustotal_result
 
-    # Query AlienVault OTX for IP
+    # Query AlienVault OTX for sender IP intelligence
     alienvault_result = query_alienvault(sender_ip) if sender_ip else None
 
-    # Prepare the output in the required format
-    virustotal_url_links = []
-    for url, result in virustotal_url_results.items():
-        domain = urlparse(url).netloc
-        if 'data' in result and 'id' in result['data']:
-            analysis_url = f"[VirusTotal](https://www.virustotal.com/gui/url/{result['data']['id']}/detection)"
-        else:
-            analysis_url = "No VT Results"
-        truncated_url = truncate_url(url)
-        virustotal_url_links.append(f"{truncated_url}\n{analysis_url}")
-
+    # Construct VirusTotal file links
     virustotal_file_links = []
-    for attachment in attachments:
-        for file_hash in attachment.get('file.hash.sha256', []):
-            file_name = attachment.get('file.name', ['unknown'])[0]
-            file_result = virustotal_file_results.get(file_hash, {})
-            if 'data' in file_result and 'id' in file_result['data']:
+    for file_hash, file_result in virustotal_file_results.items():
+        for file_name in attachment.get('file.name', []):
+            if 'data' in file_result:
                 virustotal_link = f"https://www.virustotal.com/gui/file/{file_result['data']['id']}/detection"
             else:
                 virustotal_link = "No VT Results"
-            virustotal_file_links.append({"name": file_name, "hash": file_hash, "virustotal_link": virustotal_link})
+            virustotal_file_links.append({
+                "name": file_name,
+                "hash": file_hash,
+                "virustotal_link": virustotal_link
+            })
 
     alienvault_summary = {}
-    if alienvault_result:
+    if alienvault_result is None:
+        alienvault_summary = {}
+    elif 'message' in alienvault_result:
+        alienvault_summary = {"error": alienvault_result['message']}
+    else:
         alienvault_summary = {
             "reputation": alienvault_result.get('reputation', 'N/A'),
             "country": alienvault_result.get('country_name', 'N/A'),
@@ -296,6 +239,11 @@ def process_phishing_report(report):
             "longitude": alienvault_result.get('longitude', 'N/A'),
             "adversary": alienvault_result.get('adversary', 'N/A')
         }
+
+    # Check URLs on VirusTotal
+    for url in urls:
+        vt_result = check_url_virustotal(url['final_url'])
+        url['virustotal_result'] = vt_result
 
     return {
         "to": to,
@@ -306,11 +254,8 @@ def process_phishing_report(report):
         "sender_ip": sender_ip if sender_ip else "N/A",
         "abuseipdb_result": abuseipdb_summary,
         "alienvault_result": alienvault_summary,
-        "google_safe_browsing_results": google_safe_browsing_results,
-        "urls": virustotal_url_links,
+        "urls": urls,
         "files": virustotal_file_links,
-        "decoded_urls": decoded_urls,
-        "expanded_urls": expanded_urls
     }
 
 # Function to get JSON input from clipboard or user input
@@ -352,7 +297,7 @@ if results:
     output.append(f"Subject: `{results['subject']}`")
     output.append(f"Sender IP: `{results['sender_ip']}`")
     output.append("")
-    
+
     if 'ipAddress' in results['abuseipdb_result']:
         output.append("***AbuseIPDB Result:***")
         output.append(f"  - IP Address: {results['abuseipdb_result']['ipAddress']}")
@@ -363,9 +308,13 @@ if results:
         output.append(f"  - Domain: {results['abuseipdb_result']['domain']}")
         output.append(f"  - Total Reports: {results['abuseipdb_result']['totalReports']}")
         output.append(f"  - Last Reported At: {results['abuseipdb_result']['lastReportedAt']}")
-    
-        output.append("")
-    
+    elif 'error' in results['abuseipdb_result']:
+        output.append("***AbuseIPDB Result:***")
+        output.append(f"  - Error: {results['abuseipdb_result']['error']}")
+
+    output.append("")
+
+    if 'reputation' in results['alienvault_result']:
         output.append("***AlienVault OTX Result:***")
         output.append(f"  - Reputation: {results['alienvault_result']['reputation']}")
         output.append(f"  - Country: {results['alienvault_result']['country']}")
@@ -373,8 +322,9 @@ if results:
         output.append(f"  - Latitude: {results['alienvault_result']['latitude']}")
         output.append(f"  - Longitude: {results['alienvault_result']['longitude']}")
         output.append(f"  - Adversary: {results['alienvault_result']['adversary']}")
-    else:
-        output.append("No valid IP address found for scanning.")
+    elif 'error' in results['alienvault_result']:
+        output.append("***AlienVault OTX Result:***")
+        output.append(f"  - Error: {results['alienvault_result']['error']}")
 
     if results['body'] and results['body'] != 'N/A':
         output.append("")
@@ -386,9 +336,22 @@ if results:
         output.append("***Body:*** N/A")
 
     if results['urls']:
+        output.append("")
         output.append("***Urls:***")
         for url in results['urls']:
-            output.append(url)
+            if url['steps']:
+                output.append(f"---")
+                output.append(f"Original URL: `{url['original_url']}`")
+                output.append(f"***Deobfuscation steps:***")
+                for step in url['steps']:
+                    output.append(step)
+                output.append(f"Final URL: `{url['final_url']}`")
+                output.append("")
+                output.append("---")
+            else:
+                output.append(f"Url: `{url['original_url']}`")
+            output.append(f"{url['virustotal_result']}")
+            output.append("")  # Add blank line for separation
 
     if results['files']:
         output.append("")
@@ -400,16 +363,6 @@ if results:
                 output.append(f"[VirusTotal]({file['virustotal_link']})")
             else:
                 output.append(file['virustotal_link'])
-                
-    if results['google_safe_browsing_results']:
-        output.append("")
-        output.append("***Google Safe Browsing Results***:")
-        for url, result in results['google_safe_browsing_results'].items():
-            truncated_url = truncate_url(url)
-            if 'matches' in result:
-                output.append(f"{truncated_url}\nThreat: {result['matches'][0]['threatType']}")
-            else:
-                output.append(f"{truncated_url}\nNo Threat Found")
 
     formatted_output = "\n".join(output)
 
