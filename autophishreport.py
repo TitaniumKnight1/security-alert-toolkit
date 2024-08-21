@@ -2,7 +2,7 @@ import requests
 import json
 import re
 import pyperclip
-from urllib.parse import unquote
+from urllib.parse import unquote, urlparse, parse_qs
 import base64
 
 # API keys
@@ -10,7 +10,6 @@ VIRUSTOTAL_API_KEY = 'VIRUSTOTAL_API_KEY'
 ABUSEIPDB_API_KEY = 'ABUSEIPDB_API_KEY'
 ALIENVAULT_API_KEY = 'ALIENVAULT_API_KEY'
 
-# Function to extract and decode URLs from the email report
 def extract_and_decode_urls(json_data):
     urls = []
 
@@ -24,34 +23,37 @@ def extract_and_decode_urls(json_data):
             found_urls = re.findall(r'(https?://\S+)', body)
             urls.extend(found_urls)
 
-    # Remove duplicates
-    urls = list(set(urls))
-
-    # Decode and clean URLs
+    # Maintain a set of seen URLs to avoid duplicates
+    seen_urls = set()
     decoded_urls = []
+
     for url in urls:
-        deobfuscation_steps = []
+        if url not in seen_urls:
+            seen_urls.add(url)
+            deobfuscation_steps = []
+            final_url = url
 
-        # Unquote URL
-        unquoted_url = unquote(url)
-        if unquoted_url != url:
-            deobfuscation_steps.append(f"Decoded: `{unquoted_url}`")
+            # Check if URL is a SafeLink
+            parsed_url = urlparse(url)
+            if parsed_url.netloc == 'nam10.safelinks.protection.outlook.com':
+                query_params = parse_qs(parsed_url.query)
+                if 'url' in query_params:
+                    # Extract the original URL
+                    safe_link_url = query_params['url'][0]
+                    # Decode URL encoding
+                    decoded_url = unquote(safe_link_url)
+                    deobfuscation_steps.append(f"Decoded SafeLink URL: `{decoded_url}`")
+                    if decoded_url not in seen_urls:
+                        seen_urls.add(decoded_url)
+                        final_url = decoded_url
+                    else:
+                        continue
 
-        # Handle obfuscated JavaScript URLs
-        js_obfuscated = re.search(r'var url\s*=\s*\[(.*?)\]\.join', unquoted_url)
-        if (js_obfuscated):
-            parts = js_obfuscated.group(1).replace("'", "").split(",")
-            reconstructed_url = "".join(parts)
-            deobfuscation_steps.append(f"Reconstructed from JS: `{reconstructed_url}`")
-            final_url = reconstructed_url
-        else:
-            final_url = unquoted_url
-
-        decoded_urls.append({
-            "original_url": url,
-            "final_url": final_url,
-            "steps": deobfuscation_steps
-        })
+            decoded_urls.append({
+                "original_url": url,
+                "final_url": final_url,
+                "steps": deobfuscation_steps
+            })
 
     return decoded_urls
 
@@ -150,8 +152,10 @@ def check_url_virustotal(url):
             return f"[VirusTotal](https://www.virustotal.com/gui/url/{url_id}) - {formatted_score}"
         else:
             return "No results found"
+    elif(response.status_code == 404):
+        return f"No VT Result"
     else:
-        return {"message": f"Error: Received status code {response.status_code}"}
+        return f"Error: Received status code {response.status_code}"
 
 # Function to query AlienVault OTX for IP intelligence
 def query_alienvault(ip):
@@ -338,20 +342,21 @@ if results:
     if results['urls']:
         output.append("")
         output.append("***Urls:***")
+        output.append("")
         for url in results['urls']:
             if url['steps']:
-                output.append(f"---")
                 output.append(f"Original URL: `{url['original_url']}`")
-                output.append(f"***Deobfuscation steps:***")
-                for step in url['steps']:
-                    output.append(step)
-                output.append(f"Final URL: `{url['final_url']}`")
                 output.append("")
-                output.append("---")
+                output.append(f"**Deobfuscation steps:**")
+                for step in url['steps']:
+                    output.append(f">{step}")
+                output.append(f"***Final URL:*** `{url['final_url']}`")
             else:
                 output.append(f"Url: `{url['original_url']}`")
             output.append(f"{url['virustotal_result']}")
-            output.append("")  # Add blank line for separation
+            output.append("")
+            output.append(f"---")
+            output.append("")
 
     if results['files']:
         output.append("")
