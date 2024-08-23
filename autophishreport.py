@@ -8,7 +8,43 @@ import base64
 # API keys
 VIRUSTOTAL_API_KEY = 'VIRUSTOTAL_API_KEY'
 ABUSEIPDB_API_KEY = 'ABUSEIPDB_API_KEY'
-ALIENVAULT_API_KEY = 'ALIENVAULT_API_KEY'
+
+# Function to perform SPF, DKIM, and DMARC checks
+def check_email_authentication(report):
+    spf_result = report.get('fields', {}).get('email.headers.Received-SPF', ['N/A'])[0]
+    dkim_result = report.get('fields', {}).get('email.headers.Authentication-Results', ['N/A'])[0]
+    dmarc_result = report.get('fields', {}).get('email.headers.Authentication-Results', ['N/A'])[0]
+
+    spf_passed = 'pass' in spf_result.lower()
+    dkim_passed = 'dkim=pass' in dkim_result.lower()
+    dmarc_passed = 'dmarc=pass' in dmarc_result.lower()
+
+    return {
+        "SPF": "Passed" if spf_passed else "Failed",
+        "DKIM": "Passed" if dkim_passed else "Failed",
+        "DMARC": "Passed" if dmarc_passed else "Failed"
+    }
+
+# Function to identify file types of attachments
+def identify_file_types(attachments):
+    file_warnings = []
+    dangerous_types = ['exe', 'bat', 'cmd', 'js', 'vbs', 'scr', 'msi']
+
+    for attachment in attachments:
+        for file_name in attachment.get('file.name', []):
+            file_extension = file_name.split('.')[-1].lower()
+            if file_extension in dangerous_types:
+                file_warnings.append({
+                    "name": file_name,
+                    "warning": f"Potentially dangerous file type: {file_extension.upper()}"
+                })
+            else:
+                file_warnings.append({
+                    "name": file_name,
+                    "warning": f"File type: {file_extension.upper()}"
+                })
+
+    return file_warnings
 
 def extract_and_decode_urls(json_data):
     urls = []
@@ -157,16 +193,7 @@ def check_url_virustotal(url):
     else:
         return f"Error: Received status code {response.status_code}"
 
-# Function to query AlienVault OTX for IP intelligence
-def query_alienvault(ip):
-    headers = {'X-OTX-API-KEY': ALIENVAULT_API_KEY}
-    response = requests.get(f'https://otx.alienvault.com/api/v1/indicators/IPv4/{ip}/general', headers=headers)
-    if response.status_code == 200:
-        return response.json()
-    else:
-        return {"message": f"Error: Received status code {response.status_code}"}
-
-# Update the process_phishing_report function to use the new extract_and_decode_urls function
+# Update the process_phishing_report function to include new checks
 def process_phishing_report(report):
     to = extract_email(report.get('fields', {}).get('email.reporter', ['N/A'])[0])
     from_address = extract_email(report.get('fields', {}).get('email.from.address', ['N/A'])[0])
@@ -178,6 +205,9 @@ def process_phishing_report(report):
     attachments = report.get('fields', {}).get('email.attachments', [])
     auth_results = report.get('fields', {}).get('email.headers.Authentication-Results', ['N/A'])[0]
     received_spf = report.get('fields', {}).get('email.headers.Received-SPF', ['N/A'])[0]
+
+    # SPF, DKIM, and DMARC Checks
+    email_authentication_results = check_email_authentication(report)
 
     # Extract and check sender IP
     sender_ip = extract_ip_from_auth_results(auth_results)
@@ -212,8 +242,8 @@ def process_phishing_report(report):
             virustotal_result = check_file_hash(file_hash)
             virustotal_file_results[file_hash] = virustotal_result
 
-    # Query AlienVault OTX for sender IP intelligence
-    alienvault_result = query_alienvault(sender_ip) if sender_ip else None
+    # Identify file types and flag dangerous types
+    file_type_warnings = identify_file_types(attachments)
 
     # Construct VirusTotal file links
     virustotal_file_links = []
@@ -229,26 +259,6 @@ def process_phishing_report(report):
                 "virustotal_link": virustotal_link
             })
 
-    alienvault_summary = {}
-    if alienvault_result is None:
-        alienvault_summary = {}
-    elif 'message' in alienvault_result:
-        alienvault_summary = {"error": alienvault_result['message']}
-    else:
-        alienvault_summary = {
-            "reputation": alienvault_result.get('reputation', 'N/A'),
-            "country": alienvault_result.get('country_name', 'N/A'),
-            "city": alienvault_result.get('city', 'N/A'),
-            "latitude": alienvault_result.get('latitude', 'N/A'),
-            "longitude": alienvault_result.get('longitude', 'N/A'),
-            "adversary": alienvault_result.get('adversary', 'N/A')
-        }
-
-    # Check URLs on VirusTotal
-    for url in urls:
-        vt_result = check_url_virustotal(url['final_url'])
-        url['virustotal_result'] = vt_result
-
     return {
         "to": to,
         "from": from_address,
@@ -257,7 +267,8 @@ def process_phishing_report(report):
         "body": body,
         "sender_ip": sender_ip if sender_ip else "N/A",
         "abuseipdb_result": abuseipdb_summary,
-        "alienvault_result": alienvault_summary,
+        "email_authentication_results": email_authentication_results,
+        "file_type_warnings": file_type_warnings,
         "urls": urls,
         "files": virustotal_file_links,
     }
@@ -318,17 +329,17 @@ if results:
 
     output.append("")
 
-    if 'reputation' in results['alienvault_result']:
-        output.append("***AlienVault OTX Result:***")
-        output.append(f"  - Reputation: {results['alienvault_result']['reputation']}")
-        output.append(f"  - Country: {results['alienvault_result']['country']}")
-        output.append(f"  - City: {results['alienvault_result']['city']}")
-        output.append(f"  - Latitude: {results['alienvault_result']['latitude']}")
-        output.append(f"  - Longitude: {results['alienvault_result']['longitude']}")
-        output.append(f"  - Adversary: {results['alienvault_result']['adversary']}")
-    elif 'error' in results['alienvault_result']:
-        output.append("***AlienVault OTX Result:***")
-        output.append(f"  - Error: {results['alienvault_result']['error']}")
+    if results['email_authentication_results']:
+        output.append("***Email Authentication Results:***")
+        output.append(f"  - **SPF:** `{results['email_authentication_results']['SPF']}` *(SPF verifies that the email is sent from an authorized server for the sender's domain.)*")
+        output.append(f"  - **DKIM:** `{results['email_authentication_results']['DKIM']}` *(DKIM ensures that the email content has not been altered and confirms the sender's identity.)*")
+        output.append(f"  - **DMARC:** `{results['email_authentication_results']['DMARC']}` *(DMARC uses SPF and DKIM results to determine if the email should be trusted and specifies how to handle authentication failures.)*")
+
+    if results['file_type_warnings']:
+        output.append("")
+        output.append("***File Type Warnings:***")
+        for warning in results['file_type_warnings']:
+            output.append(f"  - {warning['name']}: {warning['warning']}")
 
     if results['body'] and results['body'] != 'N/A':
         output.append("")
@@ -353,10 +364,14 @@ if results:
                 output.append(f"***Final URL:*** `{url['final_url']}`")
             else:
                 output.append(f"Url: `{url['original_url']}`")
-            output.append(f"{url['virustotal_result']}")
+            
+            # Safely retrieve the VirusTotal result
+            vt_result = url.get('virustotal_result', "No VirusTotal result available")
+            output.append(f"{vt_result}")
             output.append("")
             output.append(f"---")
             output.append("")
+
 
     if results['files']:
         output.append("")
