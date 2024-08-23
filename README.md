@@ -20,11 +20,11 @@ This Python program is designed to analyze phishing email reports and provide de
 ## Installation
 1. Clone the repository:
     ```bash
-    git clone https://github.com/yourusername/phishing-email-analysis-tool.git
+    git clone https://github.com/TitaniumKnight1/autophishreport.git
     ```
 2. Navigate to the project directory:
     ```bash
-    cd phishing-email-analysis-tool
+    cd autophishreport
     ```
 3. Install the required dependencies:
     ```bash
