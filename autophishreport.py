@@ -4,6 +4,8 @@ import re
 import pyperclip
 from urllib.parse import unquote, urlparse, parse_qs
 import base64
+from alive_progress import alive_bar
+from time import sleep
 
 # API keys
 VIRUSTOTAL_API_KEY = 'VIRUSTOTAL_API_KEY'
@@ -178,6 +180,7 @@ def check_url_virustotal(url):
     url_id = generate_url_id(url)
     headers = {'x-apikey': VIRUSTOTAL_API_KEY}
     response = requests.get(f'https://www.virustotal.com/api/v3/urls/{url_id}', headers=headers)
+    sleep(15)  # Sleep for 15 seconds to avoid rate limiting
     if response.status_code == 200:
         url_obj = response.json()
         if 'data' in url_obj:
@@ -193,71 +196,67 @@ def check_url_virustotal(url):
     else:
         return f"Error: Received status code {response.status_code}"
 
-# Update the process_phishing_report function to include new checks
 def process_phishing_report(report):
-    to = extract_email(report.get('fields', {}).get('email.reporter', ['N/A'])[0])
-    from_address = extract_email(report.get('fields', {}).get('email.from.address', ['N/A'])[0])
-    reply_to = extract_email(report.get('fields', {}).get('email.headers.Reply-To', ['N/A'])[0]) if 'email.headers.Reply-To' in report.get('fields', {}) else 'N/A'
-    subject = report.get('fields', {}).get('email.subject.text', ['N/A'])[0]
-    body = report.get('fields', {}).get('email.body_plaintext', ['N/A'])[0].replace('\n', ' ').replace('\r', '').strip()
-    body = format_email_body(body)  # Apply the formatting function
-    urls = extract_and_decode_urls(report)
-    attachments = report.get('fields', {}).get('email.attachments', [])
-    auth_results = report.get('fields', {}).get('email.headers.Authentication-Results', ['N/A'])[0]
-    received_spf = report.get('fields', {}).get('email.headers.Received-SPF', ['N/A'])[0]
+    with alive_bar(7, title="Processing Report") as bar:  # Increased the count to 7 steps
+        to = extract_email(report.get('fields', {}).get('email.reporter', ['N/A'])[0])
+        from_address = extract_email(report.get('fields', {}).get('email.from.address', ['N/A'])[0])
+        reply_to = extract_email(report.get('fields', {}).get('email.headers.Reply-To', ['N/A'])[0]) if 'email.headers.Reply-To' in report.get('fields', {}) else 'N/A'
+        subject = report.get('fields', {}).get('email.subject.text', ['N/A'])[0]
+        body = report.get('fields', {}).get('email.body_plaintext', ['N/A'])[0].replace('\n', ' ').replace('\r', '').strip()
+        body = format_email_body(body)  # Apply the formatting function
+        bar()  # progress after formatting body
+        
+        urls = extract_and_decode_urls(report)
+        attachments = report.get('fields', {}).get('email.attachments', [])
+        auth_results = report.get('fields', {}).get('email.headers.Authentication-Results', ['N/A'])[0]
+        received_spf = report.get('fields', {}).get('email.headers.Received-SPF', ['N/A'])[0]
+        bar()  # progress after extracting URLs and attachments
 
-    # SPF, DKIM, and DMARC Checks
-    email_authentication_results = check_email_authentication(report)
+        # SPF, DKIM, and DMARC Checks
+        email_authentication_results = check_email_authentication(report)
+        bar()  # progress after email authentication checks
 
-    # Extract and check sender IP
-    sender_ip = extract_ip_from_auth_results(auth_results)
-    if not sender_ip:
-        sender_ip = extract_ip_from_received_spf(received_spf)
+        # Extract and check sender IP
+        sender_ip = extract_ip_from_auth_results(auth_results)
+        if not sender_ip:
+            sender_ip = extract_ip_from_received_spf(received_spf)
 
-    abuseipdb_result = None
-    if sender_ip:
-        abuseipdb_result = check_ip_abuseipdb(sender_ip)
+        abuseipdb_result = None
+        if sender_ip:
+            abuseipdb_result = check_ip_abuseipdb(sender_ip)
+        bar()  # progress after IP check
 
-    # Proceed even if abuseipdb_result is None
-    if abuseipdb_result is None:
-        abuseipdb_summary = {}
-    elif 'message' in abuseipdb_result:
-        abuseipdb_summary = {"error": abuseipdb_result['message']}
-    else:
-        abuseipdb_summary = {
-            "ipAddress": abuseipdb_result['data']['ipAddress'],
-            "abuseConfidenceScore": abuseipdb_result['data']['abuseConfidenceScore'],
-            "country": abuseipdb_result['data']['countryName'],
-            "usageType": abuseipdb_result['data']['usageType'],
-            "isp": abuseipdb_result['data']['isp'],
-            "domain": abuseipdb_result['data']['domain'],
-            "totalReports": abuseipdb_result['data']['totalReports'],
-            "lastReportedAt": abuseipdb_result['data']['lastReportedAt']
-        }
+        # Check file hashes on VirusTotal
+        virustotal_file_results = {}
+        for attachment in attachments:
+            for file_hash in attachment.get('file.hash.sha256', []):
+                virustotal_result = check_file_hash(file_hash)
+                virustotal_file_results[file_hash] = virustotal_result
+                sleep(15)  # Sleep for 15 seconds to avoid rate limiting
+        bar()  # progress after VirusTotal file checks
 
-    # Check file hashes on VirusTotal
-    virustotal_file_results = {}
-    for attachment in attachments:
-        for file_hash in attachment.get('file.hash.sha256', []):
-            virustotal_result = check_file_hash(file_hash)
-            virustotal_file_results[file_hash] = virustotal_result
+        # Check URLs on VirusTotal
+        for url_data in urls:
+            virustotal_result = check_url_virustotal(url_data['final_url'])
+            url_data['virustotal_result'] = virustotal_result
+        bar()  # progress after VirusTotal URL checks
 
-    # Identify file types and flag dangerous types
-    file_type_warnings = identify_file_types(attachments)
+        # Identify file types and flag dangerous types
+        file_type_warnings = identify_file_types(attachments)
 
-    # Construct VirusTotal file links
-    virustotal_file_links = []
-    for file_hash, file_result in virustotal_file_results.items():
-        for file_name in attachment.get('file.name', []):
-            if 'data' in file_result:
-                virustotal_link = f"https://www.virustotal.com/gui/file/{file_result['data']['id']}/detection"
-            else:
-                virustotal_link = "No VT Results"
-            virustotal_file_links.append({
-                "name": file_name,
-                "hash": file_hash,
-                "virustotal_link": virustotal_link
-            })
+        # Construct VirusTotal file links
+        virustotal_file_links = []
+        for file_hash, file_result in virustotal_file_results.items():
+            for file_name in attachment.get('file.name', []):
+                if 'data' in file_result:
+                    virustotal_link = f"https://www.virustotal.com/gui/file/{file_result['data']['id']}/detection"
+                else:
+                    virustotal_link = "No VT Results"
+                virustotal_file_links.append({
+                    "name": file_name,
+                    "hash": file_hash,
+                    "virustotal_link": virustotal_link
+                })
 
     return {
         "to": to,
@@ -266,7 +265,7 @@ def process_phishing_report(report):
         "subject": subject if subject else "N/A",
         "body": body,
         "sender_ip": sender_ip if sender_ip else "N/A",
-        "abuseipdb_result": abuseipdb_summary,
+        "abuseipdb_result": abuseipdb_result,
         "email_authentication_results": email_authentication_results,
         "file_type_warnings": file_type_warnings,
         "urls": urls,
@@ -313,16 +312,16 @@ if results:
     output.append(f"Sender IP: `{results['sender_ip']}`")
     output.append("")
 
-    if 'ipAddress' in results['abuseipdb_result']:
+    if 'data' in results['abuseipdb_result']:
         output.append("***AbuseIPDB Result:***")
-        output.append(f"  - IP Address: {results['abuseipdb_result']['ipAddress']}")
-        output.append(f"  - Abuse Confidence Score: {results['abuseipdb_result']['abuseConfidenceScore']}")
-        output.append(f"  - Country: {results['abuseipdb_result']['country']}")
-        output.append(f"  - Usage Type: {results['abuseipdb_result']['usageType']}")
-        output.append(f"  - ISP: {results['abuseipdb_result']['isp']}")
-        output.append(f"  - Domain: {results['abuseipdb_result']['domain']}")
-        output.append(f"  - Total Reports: {results['abuseipdb_result']['totalReports']}")
-        output.append(f"  - Last Reported At: {results['abuseipdb_result']['lastReportedAt']}")
+        output.append(f"  - IP Address: {results['abuseipdb_result']['data']['ipAddress']}")
+        output.append(f"  - Abuse Confidence Score: {results['abuseipdb_result']['data']['abuseConfidenceScore']}")
+        output.append(f"  - Country: {results['abuseipdb_result']['data']['countryName']}")
+        output.append(f"  - Usage Type: {results['abuseipdb_result']['data']['usageType']}")
+        output.append(f"  - ISP: {results['abuseipdb_result']['data']['isp']}")
+        output.append(f"  - Domain: {results['abuseipdb_result']['data']['domain']}")
+        output.append(f"  - Total Reports: {results['abuseipdb_result']['data']['totalReports']}")
+        output.append(f"  - Last Reported At: {results['abuseipdb_result']['data']['lastReportedAt']}")
     elif 'error' in results['abuseipdb_result']:
         output.append("***AbuseIPDB Result:***")
         output.append(f"  - Error: {results['abuseipdb_result']['error']}")
@@ -333,7 +332,7 @@ if results:
         output.append("***Email Authentication Results:***")
         output.append(f"  - **SPF:** `{results['email_authentication_results']['SPF']}` *(SPF verifies that the email is sent from an authorized server for the sender's domain.)*")
         output.append(f"  - **DKIM:** `{results['email_authentication_results']['DKIM']}` *(DKIM ensures that the email content has not been altered and confirms the sender's identity.)*")
-        output.append(f"  - **DMARC:** `{results['email_authentication_results']['DMARC']}` *(DMARC uses SPF and DKIM results to determine if the email should be trusted and specifies how to handle authentication failures.)*")
+        output.append(f"  - **DMARC:** `{results['email_authentication_results']['DMARC']}` *(DMARC uses SPF and DKIM results to determine authenticity of the domain.)*")
 
     if results['file_type_warnings']:
         output.append("")
