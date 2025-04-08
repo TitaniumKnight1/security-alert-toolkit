@@ -12,8 +12,8 @@ from ipwhois import IPWhois
 from emailrep import EmailRep
 
 # API keys
-VIRUSTOTAL_API_KEY = 'VT_API_KEY'
-ABUSEIPDB_API_KEY = 'ABUSEIPDB_API_KEY'
+VIRUSTOTAL_API_KEY = 'API_KEY'
+ABUSEIPDB_API_KEY = 'API_KEY'
 
 def url_geolocation(url):
     try:

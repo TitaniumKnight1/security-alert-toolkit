@@ -1,0 +1,25 @@
+# --- Python ---
+# Byte-compiled / optimized / DLL files
+__pycache__/
+*.py[cod]
+*$py.class
+
+# --- Environment ---
+# Virtual environment directory
+.venv/
+venv/
+ENV/
+
+# --- Sensitive Files ---
+# API Keys and local configuration
+.env
+
+# --- IDE/Editor ---
+.vscode/
+.idea/
+*.sublime-project
+*.sublime-workspace
+
+# --- OS generated files ---
+.DS_Store
+Thumbs.db
