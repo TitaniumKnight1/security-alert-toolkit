@@ -93,3 +93,12 @@ This tool requires API keys for VirusTotal and AbuseIPDB to function fully. Thes
 -   Feel free to fork, submit issues, and suggest improvements via pull requests.
 -   **Note:** Original intent was for use within the TAMUS Cyber Operations Division, but usage is governed by the license.
 -   This project is licensed under the MIT License. See the `LICENSE` file for details.
+
+
+<!-- Security scan triggered at 2025-09-02 00:01:17 -->
+
+<!-- Security scan triggered at 2025-09-09 05:25:28 -->
+
+<!-- Security scan triggered at 2025-09-28 15:28:21 -->
+
+<!-- Security scan triggered at 2025-10-08 09:12:34 -->
