@@ -5,6 +5,7 @@ ENV_FILE_NAME = ".env"
 API_KEYS_TO_SET = {
     "VIRUSTOTAL_API_KEY": "VirusTotal API Key",
     "ABUSEIPDB_API_KEY": "AbuseIPDB API Key",
+    "GEMINI_API_KEY": "Gemini API Key",
     # Add more keys here if needed in the future
     # "ANOTHER_API_KEY": "Description for Another Key",
 }

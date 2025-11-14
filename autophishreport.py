@@ -1296,4 +1296,3 @@ def main():
 # --- Script Entry Point ---
 if __name__ == "__main__":
     main() # Execute the main function when script is run directly
-    input("\nScript finished. Press Enter to exit.") # Pause to keep window open
