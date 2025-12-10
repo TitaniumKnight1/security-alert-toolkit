@@ -21,7 +21,6 @@ security-alert-toolkit/
 ├── exception_list_generator.py     # Generate EQL exception rules (formerly exception_list.py)
 ├── create_env.py                   # Setup script for API keys
 ├── requirements.txt                # Python dependencies
-├── ChromeExtension/                # Browser extension for email capture
 └── README.md                       # This file
 ```
 
