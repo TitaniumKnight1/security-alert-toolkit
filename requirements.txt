@@ -4,3 +4,5 @@ ipwhois
 alive_progress
 ipaddress
 python-dotenv
+google-generativeai
+
